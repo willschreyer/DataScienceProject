@@ -1,0 +1,582 @@
+---
+title: "finalproject"
+author: "Will Schreyer"
+date: "2025-10-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(nflfastR)
+library(tidyverse)
+library(nflplotR)
+library(nflreadr)
+library(stringr)
+```
+
+## Reading in the data
+
+```{r}
+future::plan("multisession")
+nfldata = nflfastR::fast_scraper(fast_scraper_schedules(2010:2025),dir = getOption("nflfastR.raw_directory", default = NULL),in_builder = FALSE)
+help(fast_scraper)
+head(df)
+saveRDS(nfldata,"nfldata.RDS")
+dim(nfldata)
+```
+
+## Play selection
+
+```{r}
+# How has play selection on third down over time changed? Have teams transitioned to a more pass heavy offense or run heavy? (using variable called play_type)
+
+# Pass vs. Run by year
+nfldata %>% filter(season_type == "REG") %>%  select(game_date, play_type, ydstogo, down) %>% filter(down == 3, play_type %in% c('run', 'pass')) %>% mutate(date = as.Date(game_date), year = year(date), third_down_dist=case_when(
+  ydstogo >= 0 & ydstogo <= 3~'short',
+  ydstogo > 3 & ydstogo <= 6~'medium',
+  ydstogo >6 ~ 'long'
+)) %>% mutate(pass = ifelse(play_type=='pass', 1, 0), run = ifelse(play_type=='run',1,0)) %>% filter(!year==2025) %>%  group_by(year,third_down_dist) %>% summarize(nPass= sum(pass), nRun=sum(run)) %>%  ggplot(aes(x = year)) +
+  geom_line(aes(y = nRun, color = "Runs"), linewidth = 1) +
+  geom_line(aes(y = nPass, color = "Passes"), linewidth = 1) +
+  facet_wrap(~ third_down_dist, nrow = 1) +
+  labs(
+    title = "Number of Runs vs. Passes on 3rd Down by Distance",
+    x = "Year",
+    y = "Number of Plays",
+    color = "Play Type"
+  ) +
+  theme_bw()
+
+# Pass vs. Run by year
+nfldata %>% filter(season_type == "REG") %>%  select(game_date, play_type, ydstogo, down, third_down_converted) %>% filter(down == 3, play_type %in% c('run', 'pass')) %>% mutate(date = as.Date(game_date), year = year(date), third_down_dist=case_when(
+  ydstogo >= 0 & ydstogo <= 3~'short',
+  ydstogo > 3 & ydstogo <= 6~'medium',
+  ydstogo >6 ~ 'long'
+)) %>% mutate(pass = ifelse(play_type=='pass', 1, 0), run = ifelse(play_type=='run',1,0)) %>% filter(!year==2025) %>%  group_by(year,third_down_dist, third_down_converted) %>% summarize(nPass= sum(pass), nRun=sum(run), .groups='drop') %>% group_by(year, third_down_dist) %>%
+  mutate(
+    totalPass = sum(nPass),
+    totalRun  = sum(nRun),
+    pass_converted = nPass[third_down_converted == 1],
+    run_converted  = nRun[third_down_converted == 1],
+    pass_rate = pass_converted / totalPass,
+    run_rate  = run_converted  / totalRun
+  ) %>%
+  distinct(year, third_down_dist, pass_rate, run_rate) %>% ggplot(aes(x = year)) +
+  geom_line(aes(y = pass_rate, color = "Runs"), linewidth = 1) +
+  geom_line(aes(y = run_rate, color = "Passes"), linewidth = 1) +
+  facet_wrap(~ third_down_dist, nrow = 1) +
+  labs(
+    title = "Proportion of Runs vs. Passes Completed on 3rd Down by Distance",
+    x = "Year",
+    y = "Proportion of third downs converted",
+    color = "Play Type"
+  ) +
+  theme_bw()
+
+
+
+# Now Im going to plot the proportion of pass plays
+yearlypass = nfldata %>% filter(season_type == "REG") %>%  select(game_date, play_type) %>% filter(play_type %in% c('run', 'pass')) %>% mutate(date = as.Date(game_date), year = year(date)) %>% mutate(pass = ifelse(play_type=='pass', 1, 0), run = ifelse(play_type=='run',1,0)) %>% filter(!year==2025) %>%  group_by(year) %>% summarize(nPass= sum(pass), nRun=sum(run), passProp = nPass / (nRun + nPass)) 
+yearlypass %>% ggplot(aes(x=year, y = passProp))+geom_line() + labs(title= "Proportion of Pass Plays by Year", x="Year", y = "Proportion of Pass Plays")+geom_hline(yintercept = mean(yearlypass$passProp), lty = 2)
+```
+
+## Player Reliability 
+
+```{r}
+# on third down, when either targeted on a pass or running the ball, which player was the most reliable (converted the highest percentage of third downs to first downs) this year, and who has been the least reliable. (use variables third_down_failed, third_down_converted, receiver_player_name, rusher_player_name, down). Only use players who have attempted at least 7 third downs
+
+player_data = load_players()
+player_data = player_data %>% select(smart_id, display_name)
+
+league_baseline = nfldata %>% filter(season_type == "REG", down == 3) %>% group_by(ydstogo) %>% summarize(league_conv = mean(third_down_converted, na.rm = TRUE))
+
+nfldata %>% filter(season_type == "REG") %>% mutate(date = as.Date(game_date), year = year(date)) %>% filter(year == 2025) %>% select(third_down_failed, third_down_converted, receiver_player_name, receiver_player_id, rusher_player_name, rusher_player_id, down, ydstogo) %>% filter(down == 3) %>% mutate(player_id = ifelse(is.na(receiver_player_id), rusher_player_id, receiver_player_id), player_name = ifelse(is.na(receiver_player_name),rusher_player_name ,receiver_player_name)) %>% left_join(league_baseline, by = "ydstogo") %>% group_by(player_id, player_name) %>% summarize(
+    conv = sum(third_down_converted), 
+    failed = sum(third_down_failed), 
+    convPercentage = conv / (conv+failed),
+    avgYTG = mean(ydstogo, na.rm = TRUE),
+    expected = mean(league_conv, na.rm = TRUE),
+    adj_p = convPercentage - expected,
+    n = conv + failed,
+    p_tilde = (adj_p + 1.96^2/2) / (n + 1.96^2),
+    n_tilde = n + 1.96^2,
+    se_tilde = sqrt(p_tilde * (1 - p_tilde) / n_tilde),
+    lowerCI = p_tilde - 1.96 * se_tilde,
+    .groups='drop'
+  ) %>% filter(conv+failed >=7) %>% left_join(player_data, by=c("player_id" = "smart_id")) %>% select(display_name, lowerCI) %>%  arrange(desc(lowerCI)) %>% slice(1:5) 
+# the most reliable has been CMC (Christian McCaffrey)
+# the least reliable has been AD Mitchell (just got traded to the jets)
+
+
+# how about from 2010-now? this time with a tleast 10 attempts
+
+nfldata %>% filter(season_type == "REG") %>% mutate(date = as.Date(game_date), year = year(date)) %>% select(third_down_failed, third_down_converted, receiver_player_name, receiver_player_id, rusher_player_name, rusher_player_id, down, ydstogo) %>% filter(down == 3) %>% mutate(player_id = ifelse(is.na(receiver_player_id), rusher_player_id, receiver_player_id), player_name = ifelse(is.na(receiver_player_name),rusher_player_name ,receiver_player_name)) %>% left_join(league_baseline, by = "ydstogo") %>% group_by(player_id, player_name) %>% summarize(
+    conv = sum(third_down_converted), 
+    failed = sum(third_down_failed), 
+    convPercentage = conv / (conv+failed),
+    avgYTG = mean(ydstogo, na.rm = TRUE),
+    expected = mean(league_conv, na.rm = TRUE),
+    adj_p = convPercentage - expected,
+    n = conv + failed,
+    p_tilde = (adj_p + 1.96^2/2) / (n + 1.96^2),
+    n_tilde = n + 1.96^2,
+    se_tilde = sqrt(p_tilde * (1 - p_tilde) / n_tilde),
+    lowerCI = p_tilde - 1.96 * se_tilde,
+    .groups='drop'
+  ) %>% filter(conv+failed >=10) %>% left_join(player_data, by=c("player_id" = "smart_id")) %>% select(display_name, lowerCI) %>% arrange((lowerCI)) %>% slice(1:5) 
+
+# the most reliable has been Keenan Allen
+# the least reliable has been Kevin Elliott
+
+
+# a different method 
+
+player_data = load_players() %>%
+  select(smart_id, display_name)
+
+
+player_results = nfldata %>%
+  filter(season_type == "REG") %>%
+  mutate(date = as.Date(game_date), year = lubridate::year(date)) %>%
+  filter(year == 2025, down == 3) %>%
+  mutate(
+    player_id = ifelse(is.na(receiver_player_id), rusher_player_id, receiver_player_id),
+    player_name = ifelse(is.na(receiver_player_name), rusher_player_name, receiver_player_name)
+  ) %>%
+  left_join(league_baseline, by = "ydstogo") %>%   # league expectation by distance
+  group_by(player_id, player_name) %>%
+  summarize(
+    conv = sum(third_down_converted, na.rm = TRUE),
+    failed = sum(third_down_failed, na.rm = TRUE),
+    n = conv + failed,
+    avgYTG = mean(ydstogo),
+    expected = mean(league_conv, na.rm = TRUE),
+    p_hat = conv / n,
+    .groups = "drop"
+  ) %>%
+  filter(n >= 10) %>%   # minimum sample size
+  mutate(
+    k = 20,  # strength of league-wide prior
+    # ⭐ EMPIRICAL BAYES POSTERIOR: shrinks toward league average, NOT toward 50%
+    p_EB = (n * p_hat + k * expected) / (n + k),
+
+    # Standard error of the EB posterior
+    SE = sqrt( p_EB * (1 - p_EB) / (n + k) ),
+
+    # 95% confidence lower bound (conservative estimate)
+    lowerCI = p_EB - 1.96 * SE,
+
+    # “Wins above expectation” metric
+    over_perf = p_EB - expected
+  ) %>%
+  left_join(player_data, by = c("player_id" = "smart_id")) %>% drop_na(display_name)
+
+player_results %>%
+  arrange(desc(lowerCI)) %>%
+  select(display_name, n, p_hat, expected, p_EB, lowerCI) %>%
+  head(5)
+
+player_results %>%
+  arrange(lowerCI) %>%
+  select(display_name, n, p_hat, expected, p_EB, lowerCI) %>%
+  head(5)
+
+
+# new approach for 2010-2025
+
+player_results = nfldata %>%
+  filter(season_type == "REG") %>%
+  mutate(date = as.Date(game_date), year = lubridate::year(date)) %>%
+  filter(down == 3) %>%
+  mutate(
+    player_id = ifelse(is.na(receiver_player_id), rusher_player_id, receiver_player_id),
+    player_name = ifelse(is.na(receiver_player_name), rusher_player_name, receiver_player_name)
+  ) %>%
+  left_join(league_baseline, by = "ydstogo") %>%   # league expectation by distance
+  group_by(player_id, player_name) %>%
+  summarize(
+    conv = sum(third_down_converted, na.rm = TRUE),
+    failed = sum(third_down_failed, na.rm = TRUE),
+    n = conv + failed,
+    avgYTG = mean(ydstogo),
+    expected = mean(league_conv, na.rm = TRUE),
+    p_hat = conv / n,
+    .groups = "drop"
+  ) %>%
+  filter(n >= 30) %>%   # minimum sample size
+  mutate(
+    k = 20,  # strength of league-wide prior
+    # ⭐ EMPIRICAL BAYES POSTERIOR: shrinks toward league average, NOT toward 50%
+    p_EB = (n * p_hat + k * expected) / (n + k),
+
+    # Standard error of the EB posterior
+    SE = sqrt( p_EB * (1 - p_EB) / (n + k) ),
+
+    # 95% confidence lower bound (conservative estimate)
+    lowerCI = p_EB - 1.96 * SE,
+
+    # “Wins above expectation” metric
+    over_perf = p_EB - expected
+  ) %>%
+  left_join(player_data, by = c("player_id" = "smart_id")) %>% drop_na(display_name)
+
+player_results %>%
+  arrange(desc(lowerCI)) %>%
+  select(display_name, n, p_hat, expected, p_EB, lowerCI) %>%
+  head(5)
+
+player_results %>%
+  arrange(lowerCI) %>%
+  select(display_name, n, p_hat, expected, p_EB, lowerCI) %>%
+  head(5)
+
+
+```
+
+## Team Defense ranking and Offense ranking scatterplot
+
+```{r}
+# first make a ranking for the offenses (look at first downs and touchdowns)
+
+# make league average on touchdown percentage on plays from the specific yardline (yardline_100) (touchdown)
+league_touchdown_percent = nfldata %>% filter(season_type == 'REG', play_type %in% c("run", "pass")) %>% group_by(yardline_100) %>% summarize(league_conv_td= mean((posteam==td_team) & touchdown == 1, na.rm = TRUE))
+
+# make league average on first down percentage on plays from the specific ydstogo (ydstogo) exclude 4th downs
+league_firstdown_percent = nfldata %>% filter(season_type == "REG", play_type %in% c("run","pass"), down != 4) %>% group_by(ydstogo) %>% summarize(league_conv_fd = mean(first_down_rush | first_down_pass, na.rm = TRUE))
+
+# now look at how different teams perform against these metrics
+nfldata %>% filter(season_type == "REG") %>% mutate(date = as.Date(game_date), year = year(date)) %>% filter(year == 2025) %>% mutate(team_id = posteam) %>% left_join(league_firstdown_percent, by = "ydstogo") %>% select(league_conv_fd, first_down_rush, first_down_pass, posteam, yardline_100, touchdown, td_team, ydstogo, team_id) %>% drop_na(first_down_pass, league_conv_fd, first_down_rush) %>% left_join(league_touchdown_percent, by = 'yardline_100') %>% group_by(team_id) %>% summarize(
+    fd_conv = sum(first_down_rush | first_down_pass), 
+    fd_failed = sum(first_down_rush | first_down_pass), 
+    td_conv = sum((posteam==td_team) & touchdown == 1),
+    td_failed = sum(!((posteam==td_team) & touchdown == 1)),
+    fdconvPercentage = fd_conv / (fd_conv+fd_failed),
+    tdconvPercentage = td_conv / (td_failed+td_conv),
+    avgYTG = mean(ydstogo, na.rm = TRUE),
+    avgYDLINE = mean(yardline_100, na.rm = TRUE),
+    expected_fd = mean(league_conv_fd, na.rm = TRUE),
+    expected_td = mean(league_conv_td, na.rm = TRUE),
+    fd_adj_p = fdconvPercentage - expected_fd,
+    td_adj_p = tdconvPercentage - expected_td,
+    n_fd = fd_conv + fd_failed,
+    n_td = td_conv + td_failed,
+    fd_p_tilde = (fd_adj_p + 1.96^2/2) / (n_fd + 1.96^2),
+    fd_n_tilde = n_fd + 1.96^2,
+    fd_se_tilde = sqrt(fd_p_tilde * (1 - fd_p_tilde) / fd_n_tilde),
+    fd_lowerCI = fd_p_tilde - 1.96 * fd_se_tilde,
+    td_p_tilde = (td_adj_p + 1.96^2/2) / (n_td + 1.96^2),
+    td_n_tilde = n_td + 1.96^2,
+    td_se_tilde = sqrt(td_p_tilde * (1 - td_p_tilde) / td_n_tilde),
+    td_lowerCI = td_p_tilde - 1.96 * td_se_tilde,
+    combined_lowerCI = (fd_lowerCI * n_fd + td_lowerCI * n_td) / (n_fd + n_td),
+    .groups='drop'
+  ) %>% arrange((combined_lowerCI)) %>% slice(1:5) 
+
+
+
+```
+
+## Team Defense ranking and Offense ranking scatterplot
+
+```{r}
+# look at offense and defense epa per play for this year on third downs
+pbp = nflreadr::load_pbp(2025)
+
+offense_epa = pbp %>% mutate(date = as.Date(game_date), year = year(date)) %>% filter(year == 2025, down == 3) %>% filter(season_type == "REG", ) %>% filter(!is.na(posteam) & (rush == 1 | pass == 1)) %>% mutate(team_off = posteam) %>% group_by(team_off) %>% summarize(off_epa = mean(epa, na.rm = TRUE), .groups = "drop") %>% rename(team = team_off)
+
+defense_epa = pbp %>%  mutate(date = as.Date(game_date), year = year(date)) %>% filter(year == 2025, down == 3) %>% filter(season_type == "REG") %>% filter(!is.na(defteam) & (rush == 1 | pass == 1)) %>% mutate(team_def = defteam) %>% group_by(team_def) %>% summarize(def_epa = mean(epa, na.rm = TRUE), .groups = "drop") %>% rename(team = team_def) 
+
+offense_epa %>% inner_join(defense_epa, by = "team") %>% ggplot(aes(x = off_epa, y = def_epa)) +geom_abline(slope = -1.5, intercept = (10:-20)/10, alpha = 0.2) + nflplotR::geom_mean_lines(aes(y0 = off_epa, x0 = def_epa)) + nflplotR::geom_nfl_logos(aes(team_abbr = team), width = 0.07, alpha = 0.7) + labs(
+    x = "Offense EPA/third down",
+    y = "Defense EPA/third down",
+    caption = "Data: @nflfastR",
+    title = "2025 NFL Offensive and Defensive EPA per Third Down"
+  ) + theme_bw() + theme(
+    plot.title = element_text(size = 12, hjust = 0.5, face = "bold")
+  ) + scale_y_reverse()
+
+# now from 2010-now
+pbp2 = nflreadr::load_pbp(2010:2015)
+
+offense_epa = pbp2 %>% mutate(date = as.Date(game_date), year = year(date)) %>% filter(season_type == "REG", down == 3) %>% filter(!is.na(posteam) & (rush == 1 | pass == 1)) %>% mutate(team_off = posteam) %>% group_by(team_off) %>% summarize(off_epa = mean(epa, na.rm = TRUE), .groups = "drop") %>% rename(team = team_off)
+
+defense_epa = pbp2 %>%  mutate(date = as.Date(game_date), year = year(date))%>% filter(season_type == "REG", down == 3) %>% filter(!is.na(defteam) & (rush == 1 | pass == 1)) %>% mutate(team_def = defteam) %>% group_by(team_def) %>% summarize(def_epa = mean(epa, na.rm = TRUE), .groups = "drop") %>% rename(team = team_def) 
+
+offense_epa %>% inner_join(defense_epa, by = "team") %>% ggplot(aes(x = off_epa, y = def_epa)) +geom_abline(slope = -1.5, intercept = (20:-20)/10, alpha = 0.2) + nflplotR::geom_mean_lines(aes(y0 = off_epa, x0 = def_epa)) + nflplotR::geom_nfl_logos(aes(team_abbr = team), width = 0.07, alpha = 0.7) + labs(
+    x = "Offense EPA/third down",
+    y = "Defense EPA/third down",
+    caption = "Data: @nflfastR",
+    title = "2010-2025 NFL Offensive and Defensive EPA per Third Down"
+  ) + theme_bw() + theme(
+    plot.title = element_text(size = 12, hjust = 0.5, face = "bold")
+  ) + scale_y_reverse()
+```
+
+## Records
+
+```{r}
+# From 2010-now, what have been the 5 longest pass attempts (either completed or not) and who threw them? (use air_yards and passer_player_name)
+
+nfldata %>% filter(season_type == "REG") %>% select(air_yards, passer_player_name) %>% arrange(desc(air_yards)) %>% slice(1:10)
+# T.J Yates, Derek Carr, Josh Allen are all tied for pass attempts of 65 yards (Derek Carr and Josh Allen twice each)
+
+# how about this season so far?
+nfldata %>% filter(season_type == "REG") %>% mutate(date = as.Date(game_date), year = year(date)) %>%  select(year, air_yards, passer_player_name) %>% filter(year==2025) %>% arrange(desc(air_yards)) %>% slice(1:5)
+# Patrick Mahomes (64 yards), Bo Nix (61 yards), Aaron Rodgers (60 yards), Bo Nix (58 yards), Bo Nix (57 yards)
+
+```
+
+## Third down conversion percentage by yard
+
+```{r}
+df5 = nfldata %>% 
+  filter(season_type == "REG") %>% 
+  select(game_date, third_down_converted, ydstogo, down) %>% 
+  filter(down == 3) %>% 
+  mutate(
+    date = as.Date(game_date),
+    year = year(date),
+    year = as.numeric(year),
+    third_down_dist = case_when(
+      ydstogo <= 3 ~ 'short',
+      ydstogo <= 6 ~ 'medium',
+      TRUE ~ 'long'
+    )
+  ) %>% 
+  filter(year != 2025) %>%
+  group_by(year, third_down_dist) %>%
+  summarize(
+    attempts = n(),
+    conversions = sum(third_down_converted, na.rm = TRUE),
+    conv_rate = conversions / attempts,
+    .groups = "drop"
+  )
+df5 %>% 
+  ggplot(aes(x = year, y = conv_rate, color = third_down_dist)) +
+  geom_smooth(method = "loess", span = 1.2, se = FALSE, linewidth = 1.8) +
+  labs(
+    title = "NFL 3rd Down Conversion Rates Over Time by Distance",
+    x = "Year",
+    y = "Conversion Rate",
+    color = "Distance"
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_color_manual(
+    values = c("short" = "darkgreen", "medium" = "goldenrod", "long" = "firebrick")
+  ) +
+  theme_bw() 
+```
+
+## How weather affects conversion percentage based on run and pass plays
+
+```{r}
+unique(nfldata$weather)
+
+nfldata_weather = nfldata %>% filter(season_type == "REG") %>% 
+  mutate(
+    # temperature: number before "° F"
+    temp = as.numeric(str_extract(weather, "\\d+(?=° F)")),
+
+    # wind speed: last number before "mph"
+    wind = str_extract(weather, "\\d+(?= mph)") %>% as.numeric(),
+
+    # handle "calm mph" → wind = 0
+    wind = ifelse(is.na(wind) & str_detect(weather, "calm"), 0, wind)
+  ) %>% select(weather, third_down_converted, play_type, temp, wind, weather, season_type, down, ydstogo) %>% drop_na(wind, temp)
+
+third_down_plays = nfldata_weather %>%
+  filter(season_type == "REG",
+         down == 3,
+         play_type %in% c("run", "pass"))
+
+# wind proportion of plays called
+third_down_plays %>%
+  mutate(
+    run_pass = ifelse(play_type == "pass", "pass", "run"),
+    third_down_dist = case_when(
+      ydstogo <= 3 ~ 'short',
+      ydstogo <= 6 ~ 'medium',
+      TRUE ~ 'long'
+    ),
+    wind_bin = case_when(
+      wind <= 5  ~ "0–5 (calm)",
+      wind <= 12 ~ "6–12 (light)",
+      wind <= 20 ~ "13–20 (moderate)",
+      wind <= 30 ~ "21–30 (strong)",
+      TRUE       ~ "30+ (extreme)"
+    ),
+    wind_bin = factor(
+      wind_bin,
+      levels = c(
+        "0–5 (calm)",
+        "6–12 (light)",
+        "13–20 (moderate)",
+        "21–30 (strong)",
+        "30+ (extreme)"
+      )
+    )
+  ) %>%
+  group_by(wind_bin, run_pass, third_down_dist) %>%
+  summarize(nPlays = n(), .groups = 'drop') %>% 
+  group_by(wind_bin, third_down_dist) %>%
+  mutate(prop = nPlays / sum(nPlays)) %>%
+  ggplot(aes(x = wind_bin, y = prop, fill = run_pass)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ third_down_dist, nrow = 1) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Effect of Wind on 3rd Down Play Calling",
+    x = "Wind (mph)",
+    y = "Proportion of Plays",
+    fill = "Play Type"
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# wind third downs converted
+third_down_plays %>%
+  mutate(
+    run_pass = ifelse(play_type == "pass", "pass", "run"),
+    third_down_dist = case_when(
+      ydstogo <= 3 ~ "short",
+      ydstogo <= 6 ~ "medium",
+      TRUE ~ "long"
+    ),
+    wind_bin = case_when(
+      wind <= 5  ~ "0–5 (calm)",
+      wind <= 12 ~ "6–12 (light)",
+      wind <= 20 ~ "13–20 (moderate)",
+      wind <= 30 ~ "21–30 (strong)",
+      TRUE       ~ "30+ (extreme)"
+    ),
+    wind_bin = factor(
+      wind_bin,
+      levels = c(
+        "0–5 (calm)",
+        "6–12 (light)",
+        "13–20 (moderate)",
+        "21–30 (strong)",
+        "30+ (extreme)"
+      )
+    )
+  ) %>%
+  group_by(wind_bin, run_pass, third_down_dist) %>%
+  summarize(
+    attempts = n(),
+    conversions = sum(third_down_converted),
+    conv_rate = conversions / attempts,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = wind_bin, y = conv_rate, fill = run_pass)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ third_down_dist) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Effect of Wind Speed on 3rd Down Conversion Rate",
+    x = "Wind Category",
+    y = "Conversion Rate",
+    fill = "Play Type"
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# temp proportion of play calls
+third_down_plays %>%
+  mutate(
+    run_pass = ifelse(play_type == "pass", "pass", "run"),
+    third_down_dist = case_when(
+      ydstogo <= 3 ~ 'short',
+      ydstogo <= 6 ~ 'medium',
+      TRUE ~ 'long'
+    ),
+    # Temperature bins
+    temp_bin = case_when(
+      temp <= 32 ~ "cold (≤32°)",
+      temp <= 50 ~ "cool 33–50°",
+      temp <= 70 ~ "mild 51–70°",
+      temp <= 85 ~ "warm 71–85°",
+      TRUE       ~ "hot >85°"
+    ),
+    # ORDER: hot → warm → mild → cool → cold
+    temp_bin = factor(
+      temp_bin,
+      levels = c(
+        "hot >85°",
+        "warm 71–85°",
+        "mild 51–70°",
+        "cool 33–50°",
+        "cold (≤32°)"
+      )
+    )
+  ) %>%
+  group_by(temp_bin, run_pass, third_down_dist) %>%
+  summarize(nPlays = n(), .groups = 'drop') %>%
+  group_by(temp_bin, third_down_dist) %>%
+  mutate(prop = nPlays / sum(nPlays)) %>%
+  ggplot(aes(x = temp_bin, y = prop, fill = run_pass)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ third_down_dist, nrow = 1) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Effect of Temperature on 3rd Down Play Calling",
+    x = "Temperature (°F)",
+    y = "Proportion of Plays",
+    fill = "Play Type"
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# temp third down converted
+third_down_plays %>%
+  mutate(run_pass = ifelse(play_type == "pass", "pass", "run"), third_down_dist = case_when(
+      ydstogo <= 3 ~ 'short',
+      ydstogo <= 6 ~ 'medium',
+      TRUE ~ 'long'
+    )) %>%
+  mutate(temp_bin = case_when(
+  temp <= 32 ~ "cold (≤32°)",
+  temp <= 50 ~ "cool 33–50°",
+  temp <= 70 ~ "mild 51–70°",
+  temp <= 85 ~ "warm 71–85°",
+  TRUE ~ "hot >85°"
+  ),
+  temp_bin = factor(
+  temp_bin,
+  levels = c(
+    "hot >85°",
+    "warm 71–85°",
+    "mild 51–70°",
+    "cool 33–50°",
+    "cold (≤32°)"
+  )
+)
+) %>% 
+  group_by(temp_bin, run_pass, third_down_dist) %>%
+  summarize(attempts = n(),
+    conversions = sum(third_down_converted, na.rm = TRUE),
+    conv_rate = conversions / attempts, .groups = 'drop') %>% 
+  ggplot(aes(x = temp_bin, y = conv_rate, fill = run_pass)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ third_down_dist) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme_bw() +
+  labs(
+    title = "Effect of Temperature on 3rd Down Conversion Rate",
+    x = "Temperature (°F)",
+    y = "Conversion Rate",
+    fill = "Play Type"
+  )+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+## Points per game scored over time
+
+```{r}
+# How has the points per game scored changed over the season? (use game_half == 'Half2', game_seconds_remaining == 0, total_home_score, total_away_score, season)
+
+nfldata %>% filter(season_type == "REG") %>%  select(game_half, season, game_seconds_remaining, total_home_score, total_away_score) %>% filter(game_half == 'Half2', game_seconds_remaining == 0) %>% mutate(game_score = total_home_score+total_away_score) %>% group_by(season) %>% summarize(season_points = sum(game_score), games = n(), points_per_game = season_points / games) %>% ggplot(aes(x=season,y=points_per_game))+geom_line()+labs(title="Number of Points per Game Scored by Season", x="Season", y = "Point per Game")
+```
+
