@@ -23,7 +23,7 @@ The analysis followed four phases:
 A central question in NFL analytics is whether third-down strategy has evolved over time. 
 **Figure 1** 
 (“Number of Runs vs. Passes on 3rd Down by Distance”) illustrates play-calling volume from 2010 to 2025.
-![“Number of Runs vs. Passes on 3rd Down by Distance”](results/passvsrunbyyear.pdf)
+![“Number of Runs vs. Passes on 3rd Down by Distance”](results/passvsrunbyyear.png)
 
 Passing overwhelmingly dominates **medium and long** third downs, accounting for roughly **85–90%** of plays in long-yardage situations across most seasons. Run frequency steadily declines in these categories, reflecting a league-wide shift toward pass-heavy offenses driven by improved quarterback play, spread concepts, and rule changes favoring receivers.
 
@@ -35,7 +35,7 @@ In **short-yardage** situations, however, recent seasons show a clear increase i
 While play-calling preferences have changed, conversion rates tell a different story. 
 **Figure 2** 
 (“NFL 3rd Down Conversion Rates Over Time by Distance”) shows conversion percentages from 2010 to 2025.
-![“NFL 3rd Down Conversion Rates Over Time by Distance”](results/passvsrunconversionbyyear.pdf)
+![“NFL 3rd Down Conversion Rates Over Time by Distance”](results/passvsrunconversionbyyear.png)
 
 - **Short yardage:** consistently highest (≈ 55–70%)  
 - **Medium yardage:** stable around the mid-40% range  
@@ -48,7 +48,7 @@ Despite major strategic evolution, conversion rates remain remarkably stable. Th
 ## 4. Play-Calling Efficiency by Play Type
 **Figure 3** 
 (“Proportion of Runs vs. Passes Completed on 3rd Down by Distance”) compares conversion efficiency by play type.
-![“Proportion of Runs vs. Passes Completed on 3rd Down by Distance”](results/passvsrunconversionbyyard.pdf)
+![“Proportion of Runs vs. Passes Completed on 3rd Down by Distance”](results/passvsrunconversionbyyard.png)
 
 Passing clearly outperforms rushing in **medium and long** yardage scenarios. In **short yardage**, however, the gap between rushing and passing success has narrowed in recent seasons. Rushing efficiency rises notably after 2018, coinciding with the adoption of power-based short-yardage packages and quarterback-run designs.
 
@@ -61,14 +61,14 @@ Overall, passing remains essential at longer distances, while rushing has regain
 ### 5.1 Temperature and Play Calling
 **Figure 4** 
 (“Effect of Temperature on 3rd Down Play Calling”) shows that temperature has minimal influence on play selection in medium and long yardage, where passing remains dominant across all temperature bins.
-![“Effect of Temperature on 3rd Down Play Calling”](results/temppropofplaycalls.pdf)
+![“Effect of Temperature on 3rd Down Play Calling”](results/temppropofplaycalls.png)
 
 In short-yardage situations, teams slightly reduce passing in cold conditions and rely more on rushing, likely due to ball-handling and footing concerns. However, these effects are modest.
 
 ### 5.2 Temperature and Conversion Rates
 **Figure 5** 
 (“Effect of Temperature on 3rd Down Conversion Rate”) 
-![“Effect of Temperature on 3rd Down Conversion Rate”](results/tempthirddownconversionrate.pdf)
+![“Effect of Temperature on 3rd Down Conversion Rate”](results/tempthirddownconversionrate.png)
 
 indicates that:
 - Long-yardage conversions are largely temperature-invariant  
@@ -84,13 +84,13 @@ Overall, temperature affects execution more than strategy, and its total impact 
 ### 6.1 Wind and Play Calling
 Wind introduces a disruptive force on passing. 
 **Figure 6** 
-![“Effect of Wind on 3rd Down Play Calling”](results/windpropofplays.pdf)
+![“Effect of Wind on 3rd Down Play Calling”](results/windpropofplays.png)
 (“Effect of Wind on 3rd Down Play Calling”) shows that while passing remains dominant in medium and long yardage, run frequency increases noticeably in strong and severe wind—especially in short-yardage situations.
 
 
 ### 6.2 Wind and Conversion Rates
 **Figure 7** 
-![“Effect of Wind Speed on 3rd Down Conversion Rate”](results/windthirddownconversionrate.pdf)
+![“Effect of Wind Speed on 3rd Down Conversion Rate”](results/windthirddownconversionrate.png)
 (“Effect of Wind Speed on 3rd Down Conversion Rate”) reveals a clear linear decline in **passing conversion rates** as wind speed increases. Medium-yardage passing is particularly sensitive to wind, while rushing efficiency remains largely unaffected.
 
 Wind emerges as the most impactful environmental variable affecting both strategy and execution.
@@ -99,15 +99,19 @@ Wind emerges as the most impactful environmental variable affecting both strateg
 
 ## 7. Team-Level EPA Analysis
 EPA provides a context-aware efficiency metric.  
-- **Figure 8:** Team Offensive vs. Defensive Third-Down EPA (2010–2025)  
+- **Figure 8:** Team Offensive vs. Defensive Third-Down EPA (2010–2025) 
+![“Team Offensive vs. Defensive Third-Down EPA”](results/teamepa2010_2025.png)
+
 - **Figure 9:** Same metric for the 2025 season  
+![“Same metric for the 2025 season”](results/teamepa2025.png)
+
 
 Most teams cluster near league average, with few excelling on both offense and defense. Long-term performance reflects organizational identity more than season-specific variation. Teams rarely sustain elite third-down efficiency on both sides of the ball.
 
 ---
 
 ## 8. Player Reliability Analysis Using Empirical Bayes
-Raw conversion percentages can be misleading, especially with small samples. **Figure 10** applies **Empirical Bayesian (EB) shrinkage**, combining player data with the league-average conversion baseline (~45%).
+Raw conversion percentages can be misleading, especially with small samples. The findings applied **Empirical Bayesian (EB) shrinkage**, combining player data with the league-average conversion baseline (~45%).
 
 For example, a 12-for-20 (60%) performer shrinks to an EB estimate of **52.5%**, reflecting uncertainty. Players are ranked using **95% confidence lower bounds**, rewarding consistency over volatility.
 
